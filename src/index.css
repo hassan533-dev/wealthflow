@@ -1,0 +1,77 @@
+@import "tailwindcss";
+@import "@fontsource/poppins/400.css";
+@import "@fontsource/poppins/500.css";
+@import "@fontsource/poppins/600.css";
+@import "@fontsource/poppins/700.css";
+
+:root {
+  --wf-bg: #121212;
+  --wf-surface: #1b1b1b;
+  --wf-surface-elevated: #232323;
+  --wf-emerald: #2ecc71;
+  --wf-text-primary: #e2e8f0;
+  --wf-text-muted: #94a3b8;
+}
+
+body[data-theme="light"] {
+  --wf-bg: #e5e7eb;
+  --wf-surface: #f8fafc;
+  --wf-surface-elevated: #e2e8f0;
+  --wf-text-primary: #0f172a;
+  --wf-text-muted: #475569;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Poppins", sans-serif;
+  color: var(--wf-text-primary);
+  background:
+    radial-gradient(circle at 15% -10%, rgba(46, 204, 113, 0.24), transparent 40%),
+    radial-gradient(circle at 90% 10%, rgba(148, 163, 184, 0.14), transparent 30%),
+    var(--wf-bg);
+}
+
+#root {
+  min-height: 100vh;
+}
+
+@keyframes fadeRise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-rise {
+  animation: fadeRise 420ms ease-out both;
+}
+
+/* Hide scrollbar for emoji picker / horizontal scroll areas */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Smooth overflow scrolling on iOS */
+.overflow-y-auto,
+.overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Custom number input — remove spinners */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
