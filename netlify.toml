@@ -1,0 +1,12 @@
+[build]
+  command = "npm run netlify"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Important for React Router
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

@@ -1,0 +1,9 @@
+{
+  "buildCommand": "npm run vercel",
+  "outputDirectory": "dist",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "routes": [
+    { "src": "/[^.]+", "dest": "/", "status": 200 }
+  ]
+}

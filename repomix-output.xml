@@ -40,10 +40,12 @@ The content is organized as follows:
 </file_summary>
 
 <directory_structure>
+.gitignore
 dev-dist/registerSW.js
 dev-dist/sw.js
 dev-dist/workbox-be266a9d.js
 index.html
+netlify.toml
 package.json
 public/apple-touch-icon.png
 public/manifest.json
@@ -62,11 +64,20 @@ src/main.tsx
 src/types/finance.ts
 src/utils/cn.ts
 tsconfig.json
+vercel.json
 vite.config.ts
 </directory_structure>
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path=".gitignore">
+node_modules
+dist
+.DS_Store
+.env
+*.log
+</file>
 
 <file path="dev-dist/registerSW.js">
 if('serviceWorker' in navigator) navigator.serviceWorker.register('/dev-sw.js?dev-sw', { scope: '/', type: 'classic' })
@@ -3822,6 +3833,10 @@ define(['exports'], (function (exports) { 'use strict';
 <!doctype html>
 <html lang="en">
   <head>
+    <meta name="description" content="WealthFlow - Personal finance tracker that works offline. Track expenses, set daily allowances, and build no-spend streaks.">
+<meta name="theme-color" content="#2ecc71">
+<meta property="og:title" content="WealthFlow">
+<meta property="og:description" content="Your money. Your device. Your rules.">
     <link rel="manifest" href="public/manifest.json">
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -3834,6 +3849,21 @@ define(['exports'], (function (exports) { 'use strict';
 </html>
 </file>
 
+<file path="netlify.toml">
+[build]
+  command = "npm run netlify"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Important for React Router
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+</file>
+
 <file path="package.json">
 {
   "name": "react-vite-tailwind",
@@ -3843,7 +3873,9 @@ define(['exports'], (function (exports) { 'use strict';
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "netlify": "npm install && npm run build",
+    "vercel": "npm run build"
   },
   "dependencies": {
     "@fontsource/poppins": "^5.2.7",
@@ -6248,6 +6280,18 @@ export function cn(...inputs: ClassValue[]) {
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src", "vite.config.ts"]
+}
+</file>
+
+<file path="vercel.json">
+{
+  "buildCommand": "npm run vercel",
+  "outputDirectory": "dist",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "routes": [
+    { "src": "/[^.]+", "dest": "/", "status": 200 }
+  ]
 }
 </file>
 
