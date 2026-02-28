@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { Transaction } from "../types/finance";
+import { ConfirmModal } from "./ConfirmModal";
 
 type EnrichedTransaction = Transaction & {
   categoryName: string;
@@ -12,6 +13,7 @@ type HistorySectionProps = {
   currency: string;
   hideBalance: boolean;
   onDelete: (id: number) => Promise<void>;
+  onEdit: (transaction: EnrichedTransaction) => void;
 };
 
 const formatMoney = (value: number, currency: string) => {
@@ -83,10 +85,11 @@ function groupByDate(transactions: EnrichedTransaction[]) {
   return groups;
 }
 
-export function HistorySection({ transactions, currency, hideBalance, onDelete }: HistorySectionProps) {
+export function HistorySection({ transactions, currency, hideBalance, onDelete, onEdit }: HistorySectionProps) {
   const [showAll, setShowAll] = useState(false);
   const [filter, setFilter] = useState<"all" | "need" | "want">("all");
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
   const filtered = useMemo(() => {
     if (filter === "all") return transactions;
@@ -97,17 +100,18 @@ export function HistorySection({ transactions, currency, hideBalance, onDelete }
   const displayed = showAll ? filtered : filtered.slice(0, 10);
   const grouped = useMemo(() => groupByDate(displayed), [displayed]);
 
-  // Compute totals for the filter summary
   const totalSpent = useMemo(
     () => filtered.reduce((sum, t) => sum + t.amount, 0),
     [filtered]
   );
 
-  const handleDelete = async (id: number) => {
-    const confirmed = window.confirm("Delete this transaction? The amount will be refunded to your balance.");
-    if (!confirmed) return;
-    setDeletingId(id);
-    await onDelete(id);
+  const confirmingTransaction = transactions.find((t) => t.id === confirmDeleteId);
+
+  const handleDeleteConfirmed = async () => {
+    if (confirmDeleteId == null) return;
+    setDeletingId(confirmDeleteId);
+    setConfirmDeleteId(null);
+    await onDelete(confirmDeleteId);
     setDeletingId(null);
   };
 
@@ -160,7 +164,9 @@ export function HistorySection({ transactions, currency, hideBalance, onDelete }
               {group.items.map((t) => (
                 <div
                   key={t.id}
-                  className="group flex items-center gap-3 rounded-xl border border-white/5 bg-[var(--wf-surface-elevated)] px-3 py-3 transition hover:border-white/15 sm:px-4"
+                  className={`group flex items-center gap-3 rounded-xl border border-white/5 bg-[var(--wf-surface-elevated)] px-3 py-3 transition hover:border-white/15 sm:px-4 ${
+                    deletingId === t.id ? "opacity-50" : ""
+                  }`}
                 >
                   <span
                     className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-base"
@@ -185,22 +191,29 @@ export function HistorySection({ transactions, currency, hideBalance, onDelete }
                       {t.note || "No note"} · {formatTime(t.createdAt)} · {timeAgo(t.createdAt)}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
                     <span className="shrink-0 text-sm font-semibold text-red-400">
                       {hideBalance ? "***" : `- ${formatMoney(t.amount, currency)}`}
                     </span>
+                    {/* Edit button */}
                     <button
-                      onClick={() => t.id != null && handleDelete(t.id)}
+                      onClick={() => onEdit(t)}
+                      className="shrink-0 rounded-lg p-1.5 text-[var(--wf-text-muted)]/50 opacity-0 transition hover:bg-[var(--wf-emerald)]/10 hover:text-[var(--wf-emerald)] group-hover:opacity-100"
+                      title="Edit"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                      </svg>
+                    </button>
+                    {/* Delete button — always visible on mobile, hover on desktop */}
+                    <button
+                      onClick={() => t.id != null && setConfirmDeleteId(t.id)}
                       disabled={deletingId === t.id}
-                      className="shrink-0 rounded-lg p-1.5 text-[var(--wf-text-muted)]/50 opacity-0 transition hover:bg-red-500/10 hover:text-red-400 group-hover:opacity-100 sm:opacity-0"
+                      className="shrink-0 rounded-lg p-1.5 text-[var(--wf-text-muted)]/50 transition hover:bg-red-500/10 hover:text-red-400 sm:opacity-0 sm:group-hover:opacity-100"
                       title="Delete"
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                        <path
-                          fillRule="evenodd"
-                          d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
-                          clipRule="evenodd"
-                        />
+                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
                       </svg>
                     </button>
                   </div>
@@ -219,6 +232,21 @@ export function HistorySection({ transactions, currency, hideBalance, onDelete }
           {showAll ? "Show less" : `Show all ${filtered.length} transactions`}
         </button>
       )}
+
+      {/* Beautiful in-app delete confirmation — replaces window.confirm */}
+      <ConfirmModal
+        open={confirmDeleteId !== null}
+        title="Delete Transaction?"
+        message={
+          confirmingTransaction
+            ? `Delete "${confirmingTransaction.categoryName}" transaction of ${formatMoney(confirmingTransaction.amount, currency)}? The amount will be refunded to your balance.`
+            : "This transaction will be permanently deleted and the amount refunded to your balance."
+        }
+        confirmLabel="Delete"
+        danger
+        onConfirm={handleDeleteConfirmed}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
     </section>
   );
 }

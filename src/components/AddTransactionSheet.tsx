@@ -1,28 +1,45 @@
 import { useEffect, useRef, useState } from "react";
 import type { Category } from "../types/finance";
 
+type EditData = {
+  id: number;
+  amount: number;
+  note: string;
+  isNeed: boolean;
+};
+
 type AddTransactionSheetProps = {
   category: Category | null;
   currency: string;
   onClose: () => void;
   onSubmit: (amount: number, note: string, isNeed: boolean) => Promise<void>;
+  editData?: EditData | null;
 };
 
-export function AddTransactionSheet({ category, currency, onClose, onSubmit }: AddTransactionSheetProps) {
+export function AddTransactionSheet({ category, currency, onClose, onSubmit, editData }: AddTransactionSheetProps) {
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [isNeed, setIsNeed] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const amountRef = useRef<HTMLInputElement>(null);
 
+  const isEditMode = editData != null;
+
   useEffect(() => {
     if (category) {
-      setAmount("");
-      setNote("");
-      setIsNeed(true);
+      if (isEditMode && editData) {
+        // Pre-fill with existing data
+        setAmount(String(editData.amount));
+        setNote(editData.note);
+        setIsNeed(editData.isNeed);
+      } else {
+        setAmount("");
+        setNote("");
+        setIsNeed(true);
+      }
       setTimeout(() => amountRef.current?.focus(), 30);
     }
-  }, [category]);
+  }, [category, editData, isEditMode]);
 
   if (!category) {
     return null;
@@ -52,7 +69,12 @@ export function AddTransactionSheet({ category, currency, onClose, onSubmit }: A
             >
               {category.icon}
             </span>
-            <h3 className="text-lg font-semibold text-white">{category.name}</h3>
+            <div>
+              <h3 className="text-base font-semibold text-white">{category.name}</h3>
+              {isEditMode && (
+                <p className="text-[10px] font-medium text-[var(--wf-emerald)]">✏️ Editing transaction</p>
+              )}
+            </div>
           </div>
           <button onClick={onClose} className="text-sm text-[var(--wf-text-muted)]">
             Close
@@ -124,7 +146,9 @@ export function AddTransactionSheet({ category, currency, onClose, onSubmit }: A
           disabled={isSaving}
           className="mt-5 w-full rounded-2xl bg-[var(--wf-emerald)] px-5 py-3 text-sm font-semibold text-black disabled:opacity-60"
         >
-          {isSaving ? "Saving..." : "Save transaction"}
+          {isSaving
+            ? (isEditMode ? "Updating..." : "Saving...")
+            : (isEditMode ? "✏️ Update Transaction" : "Save transaction")}
         </button>
       </div>
     </div>

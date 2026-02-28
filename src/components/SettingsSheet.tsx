@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AppSettings } from "../types/finance";
+import { exportData, importData } from "../db/localDb";
+import { ConfirmModal } from "./ConfirmModal";
 
 type SettingsSheetProps = {
   open: boolean;
@@ -24,10 +26,13 @@ export function SettingsSheet({
   const [balanceDelta, setBalanceDelta] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [backupMsg, setBackupMsg] = useState("");
+  const importRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) {
       setShowResetConfirm(false);
+      setBackupMsg("");
       return;
     }
     setCurrency(settings.currency);
@@ -39,9 +44,7 @@ export function SettingsSheet({
   const parsedDelta = useMemo(() => Number.parseFloat(balanceDelta), [balanceDelta]);
   const parsedIncome = useMemo(() => Number.parseFloat(monthlyIncome || "0"), [monthlyIncome]);
 
-  if (!open) {
-    return null;
-  }
+  if (!open) return null;
 
   const savePreferences = async () => {
     if (!currency.trim()) return;
@@ -65,6 +68,61 @@ export function SettingsSheet({
   const handleReset = async () => {
     setShowResetConfirm(false);
     await onReset();
+  };
+
+  const handleExport = async () => {
+    try {
+      const data = await exportData();
+      const json = JSON.stringify(data, null, 2);
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `wealthflow-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setBackupMsg("✅ Backup downloaded!");
+      setTimeout(() => setBackupMsg(""), 3000);
+    } catch {
+      setBackupMsg("❌ Export failed. Try again.");
+      setTimeout(() => setBackupMsg(""), 3000);
+    }
+  };
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      try {
+        const parsed = JSON.parse(ev.target?.result as string);
+        if (!parsed.settings || !parsed.categories || !parsed.transactions) {
+          setBackupMsg("❌ Invalid backup file.");
+          setTimeout(() => setBackupMsg(""), 3000);
+          return;
+        }
+        await importData(parsed);
+        setBackupMsg("✅ Data restored! Refreshing...");
+        setTimeout(() => window.location.reload(), 1500);
+      } catch {
+        setBackupMsg("❌ Could not read file. Make sure it's a valid WealthFlow backup.");
+        setTimeout(() => setBackupMsg(""), 3000);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const handleShare = async () => {
+    const url = window.location.origin;
+    const text = "💰 I'm tracking my finances with WealthFlow — free, offline, private. No account needed!";
+    if (navigator.share) {
+      await navigator.share({ title: "WealthFlow", text, url }).catch(() => null);
+    } else {
+      await navigator.clipboard.writeText(`${text}\n${url}`).catch(() => null);
+      setBackupMsg("✅ Link copied to clipboard!");
+      setTimeout(() => setBackupMsg(""), 3000);
+    }
   };
 
   return (
@@ -97,6 +155,7 @@ export function SettingsSheet({
         </div>
 
         <div className="space-y-4 p-5">
+
           {/* Currency */}
           <div className="rounded-2xl border border-white/10 bg-[var(--wf-surface-elevated)] p-4">
             <div className="mb-3 flex items-center gap-2">
@@ -115,10 +174,11 @@ export function SettingsSheet({
                 <button
                   key={c}
                   onClick={() => setCurrency(c)}
-                  className={`rounded-lg px-2.5 py-1 text-[10px] font-semibold transition ${currency === c
+                  className={`rounded-lg px-2.5 py-1 text-[10px] font-semibold transition ${
+                    currency === c
                       ? "bg-[var(--wf-emerald)] text-black"
                       : "border border-white/10 bg-black/20 text-[var(--wf-text-muted)] hover:border-white/20"
-                    }`}
+                  }`}
                 >
                   {c}
                 </button>
@@ -167,7 +227,7 @@ export function SettingsSheet({
             </button>
           </div>
 
-          {/* Increase Balance */}
+          {/* Add to Balance */}
           <div className="rounded-2xl border border-white/10 bg-[var(--wf-surface-elevated)] p-4">
             <div className="mb-3 flex items-center gap-2">
               <span className="text-base">💵</span>
@@ -192,7 +252,7 @@ export function SettingsSheet({
             </div>
           </div>
 
-          {/* Save */}
+          {/* Save Preferences */}
           <button
             onClick={savePreferences}
             disabled={isSaving}
@@ -201,7 +261,44 @@ export function SettingsSheet({
             {isSaving ? "Saving..." : "✓ Save All Preferences"}
           </button>
 
-          {/* About Section — Professional & Attractive */}
+          {/* Backup & Restore */}
+          <div className="rounded-2xl border border-white/10 bg-[var(--wf-surface-elevated)] p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <span className="text-base">💾</span>
+              <span className="text-xs font-bold uppercase tracking-wider text-[var(--wf-text-muted)]">Backup & Restore</span>
+            </div>
+            <p className="mb-3 text-xs text-[var(--wf-text-muted)]">
+              Export all your data as a JSON file. Import it back anytime — even on a new device or browser.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={handleExport}
+                className="flex-1 rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 text-xs font-semibold text-white transition hover:border-white/20"
+              >
+                📤 Export Backup
+              </button>
+              <button
+                onClick={() => importRef.current?.click()}
+                className="flex-1 rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 text-xs font-semibold text-white transition hover:border-white/20"
+              >
+                📥 Restore Backup
+              </button>
+              <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImport} />
+            </div>
+            {backupMsg && (
+              <p className="mt-2.5 text-xs font-medium text-[var(--wf-emerald)]">{backupMsg}</p>
+            )}
+          </div>
+
+          {/* Share App */}
+          <button
+            onClick={handleShare}
+            className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-[var(--wf-surface-elevated)] px-5 py-3 text-sm font-semibold text-[var(--wf-text-muted)] transition hover:border-[var(--wf-emerald)]/40 hover:text-[var(--wf-emerald)]"
+          >
+            🔗 Share WealthFlow with a Friend
+          </button>
+
+          {/* About */}
           <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-[var(--wf-surface-elevated)] to-[var(--wf-surface)] p-5">
             <div className="mb-4 flex items-center gap-3">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--wf-emerald)]/15">
@@ -220,67 +317,43 @@ export function SettingsSheet({
 
             <p className="mb-4 text-sm leading-relaxed text-[var(--wf-text-muted)]">
               <span className="font-semibold text-white">Your money. Your device. Your rules.</span>{" "}
-              WealthFlow was crafted for people who believe financial freedom starts with financial awareness —
-              not another subscription or cloud service.
+              WealthFlow was crafted for people who believe financial freedom starts with awareness — not another subscription or cloud service.
             </p>
 
             <div className="space-y-3">
               <div className="flex items-start gap-3">
-                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--wf-emerald)]/10 text-sm">
-                  🔒
-                </div>
+                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--wf-emerald)]/10 text-sm">🔒</div>
                 <div>
                   <p className="text-xs font-semibold text-white">100% Private & Offline</p>
                   <p className="text-[11px] leading-relaxed text-[var(--wf-text-muted)]">
-                    Zero servers. Zero tracking. Zero analytics. Your financial data never leaves your device — not even we can see it.
+                    Zero servers. Zero tracking. Your financial data is stored only on this device using IndexedDB.
                   </p>
                 </div>
               </div>
-
               <div className="flex items-start gap-3">
-                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--wf-emerald)]/10 text-sm">
-                  ⚡
-                </div>
+                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--wf-emerald)]/10 text-sm">⚡</div>
                 <div>
                   <p className="text-xs font-semibold text-white">Lightning Fast</p>
                   <p className="text-[11px] leading-relaxed text-[var(--wf-text-muted)]">
-                    No loading spinners, no sync delays. Every tap responds instantly because your data lives right here on your phone.
+                    No loading spinners, no sync delays. Every tap responds instantly because your data lives right here.
                   </p>
                 </div>
               </div>
-
               <div className="flex items-start gap-3">
-                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--wf-emerald)]/10 text-sm">
-                  🌱
-                </div>
+                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--wf-emerald)]/10 text-sm">🌱</div>
                 <div>
                   <p className="text-xs font-semibold text-white">Built for Real Habits</p>
                   <p className="text-[11px] leading-relaxed text-[var(--wf-text-muted)]">
-                    Daily Allowance to simplify decisions. No-Spend Streaks to build discipline. Smart categories to see the truth. Wealth isn't built in a day — it's built one good decision at a time.
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-3">
-                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--wf-emerald)]/10 text-sm">
-                  ♾️
-                </div>
-                <div>
-                  <p className="text-xs font-semibold text-white">Forever Free</p>
-                  <p className="text-[11px] leading-relaxed text-[var(--wf-text-muted)]">
-                    No premium tiers. No ads. No in-app purchases. Financial wellness shouldn't have a paywall.
+                    Daily Allowance. No-Spend Streaks. Smart categories. Wealth isn't built in a day — it's built one good decision at a time.
                   </p>
                 </div>
               </div>
             </div>
 
+            {/* Quote — fixed attribution */}
             <div className="mt-4 rounded-xl border border-[var(--wf-emerald)]/15 bg-[var(--wf-emerald)]/5 p-3 text-center">
               <p className="text-xs font-medium text-[var(--wf-emerald)]">
-                "The best time to plant a tree was 20 years ago.<br />
-                The second best time is now."
-              </p>
-              <p className="mt-4 text-xs text-[var(--wf-text-muted)]">
-                Privacy Policy: All data is stored locally on your device using IndexedDB (Dexie). No data is sent to servers. We use end-to-end encryption for sensitive fields. For full details, visit our site.
+                "The best time to plant a tree was 20 years ago. The second best time is now."
               </p>
               <p className="mt-1 text-[10px] text-[var(--wf-text-muted)]">— Chinese Proverb</p>
             </div>
@@ -292,43 +365,29 @@ export function SettingsSheet({
               <span className="text-base">⚠️</span>
               <span className="text-xs font-bold uppercase tracking-wider text-red-400">Danger Zone</span>
             </div>
-            {!showResetConfirm ? (
-              <button
-                onClick={() => setShowResetConfirm(true)}
-                className="w-full rounded-xl border border-red-500/30 px-4 py-3 text-sm font-semibold text-red-300 transition hover:bg-red-500/10"
-              >
-                🗑️ Reset Everything
-              </button>
-            ) : (
-              <div className="space-y-3">
-                <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-3">
-                  <p className="text-sm font-semibold text-red-300">Are you sure?</p>
-                  <p className="mt-1 text-xs text-red-300/70">
-                    This will permanently delete all your transactions, categories, and settings. This action cannot be undone.
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setShowResetConfirm(false)}
-                    className="flex-1 rounded-xl border border-white/10 px-4 py-3 text-sm font-medium text-[var(--wf-text-muted)] transition hover:border-white/20"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleReset}
-                    className="flex-1 rounded-xl bg-red-500 px-4 py-3 text-sm font-bold text-white transition hover:bg-red-600"
-                  >
-                    Yes, Delete All
-                  </button>
-                </div>
-              </div>
-            )}
+            <button
+              onClick={() => setShowResetConfirm(true)}
+              className="w-full rounded-xl border border-red-500/30 px-4 py-3 text-sm font-semibold text-red-300 transition hover:bg-red-500/10"
+            >
+              🗑️ Reset Everything
+            </button>
           </div>
         </div>
 
-        {/* Bottom safe area */}
         <div className="h-3" />
       </div>
+
+      {/* Beautiful reset confirmation — replaces the old inline confirm UI */}
+      <ConfirmModal
+        open={showResetConfirm}
+        title="Reset Everything?"
+        message="This will permanently delete all your transactions, categories, and settings. This cannot be undone. Consider exporting a backup first."
+        confirmLabel="Yes, Delete All"
+        cancelLabel="Cancel"
+        danger
+        onConfirm={handleReset}
+        onCancel={() => setShowResetConfirm(false)}
+      />
     </div>
   );
 }

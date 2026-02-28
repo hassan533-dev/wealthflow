@@ -205,7 +205,8 @@ export async function finishOnboarding(totalBalance: number, currency: string, m
   });
 }
 
-export async function addTransaction(categoryId: number, amount: number, note: string, isNeed: boolean) {
+// Returns the new transaction ID for undo support
+export async function addTransaction(categoryId: number, amount: number, note: string, isNeed: boolean): Promise<number> {
   const settings = await db.settings.get("singleton");
   const category = await db.categories.get(categoryId);
 
@@ -215,37 +216,35 @@ export async function addTransaction(categoryId: number, amount: number, note: s
 
   const today = getToday();
 
-  // Streak logic: only "want" purchases break the streak
   let newStreak = settings.noSpendStreak;
   let newLastWantSpendDate = settings.lastWantSpendDate;
 
   if (!isNeed) {
-    // A "want" purchase always resets the streak to 0
     newStreak = 0;
     newLastWantSpendDate = today;
   }
 
-  // Calculate carry-over for daily allowance
   const daysLeft = getDaysRemainingInMonth();
   const dailyBase = settings.monthlyIncome > 0 ? settings.monthlyIncome / daysLeft : 0;
   let newCarryOver = settings.dailyCarryOver;
 
   if (settings.lastSpendDate !== today) {
-    // New day: any unspent allowance from yesterday carries over
     const todayAllowance = dailyBase + settings.dailyCarryOver;
     newCarryOver = todayAllowance - amount;
   } else {
     newCarryOver = newCarryOver - amount;
   }
 
+  let newId = 0;
+
   await db.transaction("rw", db.transactions, db.categories, db.settings, async () => {
-    await db.transactions.add({
+    newId = (await db.transactions.add({
       categoryId,
       amount,
       note,
       isNeed,
       createdAt: new Date().toISOString(),
-    });
+    })) as number;
 
     await db.categories.update(categoryId, {
       spent: Number((category.spent + amount).toFixed(2)),
@@ -262,6 +261,37 @@ export async function addTransaction(categoryId: number, amount: number, note: s
       updatedAt: new Date().toISOString(),
     });
   });
+
+  // Haptic feedback on mobile
+  if (navigator.vibrate) navigator.vibrate(50);
+
+  return newId;
+}
+
+export async function updateTransaction(transactionId: number, newAmount: number, note: string, isNeed: boolean) {
+  const transaction = await db.transactions.get(transactionId);
+  if (!transaction) return;
+
+  const settings = await db.settings.get("singleton");
+  const category = await db.categories.get(transaction.categoryId);
+  if (!settings || !category) return;
+
+  const amountDiff = newAmount - transaction.amount;
+
+  await db.transaction("rw", db.transactions, db.categories, db.settings, async () => {
+    await db.transactions.update(transactionId, { amount: newAmount, note, isNeed });
+
+    await db.categories.update(transaction.categoryId, {
+      spent: Number(Math.max(0, category.spent + amountDiff).toFixed(2)),
+    });
+
+    await db.settings.put({
+      ...settings,
+      totalBalance: Number((settings.totalBalance - amountDiff).toFixed(2)),
+      monthlySpend: Number(Math.max(0, settings.monthlySpend + amountDiff).toFixed(2)),
+      updatedAt: new Date().toISOString(),
+    });
+  });
 }
 
 export async function recalculateStreak() {
@@ -271,13 +301,10 @@ export async function recalculateStreak() {
   const today = getToday();
   const lastWantDate = settings.lastWantSpendDate;
 
-  // If user never spent on wants, count from onboarding
   if (!lastWantDate) {
-    // Check if there are any want transactions at all
     const allTxns = await db.transactions.toArray();
     const wantTxns = allTxns.filter((t) => !t.isNeed);
     if (wantTxns.length === 0 && settings.onboarded) {
-      // No want spending ever — streak is days since updatedAt or 0
       const onboardDate = settings.updatedAt ? settings.updatedAt.slice(0, 10) : today;
       const diff = dateDiffDays(onboardDate, today);
       if (diff > 0 && settings.noSpendStreak !== diff) {
@@ -291,13 +318,11 @@ export async function recalculateStreak() {
     return;
   }
 
-  if (lastWantDate === today) return; // Already spent on want today, streak is 0
+  if (lastWantDate === today) return;
 
-  // Count days since last want spend (not including today since today isn't over)
   const diff = dateDiffDays(lastWantDate, today);
 
   if (diff > 0) {
-    // Check if there have been any want transactions since lastWantSpendDate
     const transactionsSince = await db.transactions
       .where("createdAt")
       .above(lastWantDate + "T23:59:59.999Z")
@@ -306,7 +331,6 @@ export async function recalculateStreak() {
     const recentWants = transactionsSince.filter((t) => !t.isNeed);
 
     if (recentWants.length === 0 && settings.noSpendStreak !== diff) {
-      // No wants since last recorded date — streak = days since then
       await db.settings.put({
         ...settings,
         noSpendStreak: diff,
@@ -336,6 +360,26 @@ export async function createCategory(input: {
     ...input,
     spent: 0,
     createdAt: new Date().toISOString(),
+  });
+}
+
+// Delete category AND all its transactions, refunding balance
+export async function deleteCategory(categoryId: number) {
+  const transactions = await db.transactions.where("categoryId").equals(categoryId).toArray();
+  const settings = await db.settings.get("singleton");
+  if (!settings) return;
+
+  const totalRefund = transactions.reduce((sum, t) => sum + t.amount, 0);
+
+  await db.transaction("rw", db.transactions, db.categories, db.settings, async () => {
+    await db.transactions.where("categoryId").equals(categoryId).delete();
+    await db.categories.delete(categoryId);
+    await db.settings.put({
+      ...settings,
+      totalBalance: Number((settings.totalBalance + totalRefund).toFixed(2)),
+      monthlySpend: Number(Math.max(0, settings.monthlySpend - totalRefund).toFixed(2)),
+      updatedAt: new Date().toISOString(),
+    });
   });
 }
 
@@ -394,6 +438,33 @@ export async function deleteTransaction(transactionId: number) {
       monthlySpend: Number(Math.max(0, settings.monthlySpend - transaction.amount).toFixed(2)),
       updatedAt: new Date().toISOString(),
     });
+  });
+}
+
+export async function exportData() {
+  const settings = await db.settings.get("singleton");
+  const categories = await db.categories.toArray();
+  const transactions = await db.transactions.toArray();
+  return { settings, categories, transactions, exportedAt: new Date().toISOString(), version: "1.0" };
+}
+
+export async function importData(data: {
+  settings: AppSettings;
+  categories: Category[];
+  transactions: Transaction[];
+}) {
+  await db.transaction("rw", db.settings, db.categories, db.transactions, async () => {
+    await db.transactions.clear();
+    await db.categories.clear();
+    await db.settings.clear();
+
+    if (data.settings) await db.settings.put(data.settings);
+    if (data.categories?.length) {
+      for (const cat of data.categories) await db.categories.put(cat);
+    }
+    if (data.transactions?.length) {
+      for (const txn of data.transactions) await db.transactions.put(txn);
+    }
   });
 }
 
